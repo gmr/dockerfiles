@@ -1,0 +1,118 @@
+#!/bin/bash
+export TMPDIR="${TMPDIR-/tmp}"
+PREFIX="${PREFIX-poisonpenllc}"
+SERVER="${SERVER-localhost:5000}"
+PUSH=${PUSH-true}
+BOLD=`tput bold`
+NORMAL=`tput sgr0`
+
+function boldEcho {
+  echo -e "\e[1m\e[93m$1${NORMAL}\e[39m\e[21m"
+}
+
+function buildImage {
+  echo
+  boldEcho "-> Building \e[93m$1"
+  echo
+  docker build -t tmp-$1 /home/gmr/dockerfiles/$1/
+}
+
+function getSortedImageList {
+  grep 'FROM aweber/' /home/gmr/dockerfiles/*/Dockerfile | sed -ne 's#/home/gmr/dockerfiles/\(.*\)/Dockerfile:FROM aweber/\(.*\)$#\1 \2#p' | tsort | tac
+}
+
+function maybeRemoveImage {
+  echo
+  boldEcho "-> Checking for a previous $1 image"
+  IMAGE_COUNT=`docker images | grep -c $1`
+  if [ "${IMAGE_COUNT}" -gt 0 ]
+  then
+  boldEcho "--> Found $1, removing"
+    docker rmi $1
+  fi
+  boldEcho "--> Done"
+}
+
+function maybePullUpstreamImage {
+  IMAGE=`grep FROM /home/gmr/dockerfiles/$1/Dockerfile | awk '{print $2}'`
+  echo
+  boldEcho "-> Checking for upstream image of ${IMAGE}"
+  IMAGE_COUNT=`docker images | grep -c "${IMAGE}"`
+  if [ "${IMAGE_COUNT}" -eq 0 ]
+  then
+    if [[ $IMAGE == "${PREFIX}"* ]]
+    then
+      boldEcho "--> Pulling ${IMAGE} from ${SERVER}"
+      docker pull $SERVER/$IMAGE && \
+      docker tag $SERVER/$IMAGE $IMAGE && \
+      docker rmi $SERVER/$IMAGE
+    else
+      boldEcho "--> Pulling ${IMAGE}"
+      docker pull $IMAGE
+    fi
+  fi
+  boldEcho "--> Done"
+}
+
+function maybePushImage {
+  if [[ "$PUSH" = true && $? -eq 0 ]]; then
+    echo
+    boldEcho "-> Pushing ${PREFIX}/$1 to ${SERVER}"
+    echo
+    docker tag $PREFIX/$1 $SERVER/$PREFIX/$1 && \
+    docker push $SERVER/$PREFIX/$1 && \
+    docker rmi $SERVER/$PREFIX/$1
+  fi
+}
+
+function squashImage {
+  echo
+  boldEcho "-> Squashing $1"
+  BEFORE=`docker images tmp-$1 | awk '{print $(NF-1) " " $(NF)}' | tail -n 1`
+  boldEcho " --> Original size: \e[93m${BEFORE}"
+  docker save tmp-$1 | sudo TMPDIR=$TMPDIR /home/gmr/dockerfiles/bin/docker-squash -t $PREFIX/$1 | docker load && \
+  AFTER=`docker images $PREFIX/$1 | awk '{print $(NF-1) " " $(NF)}' | tail -n 1`
+  boldEcho " --> Squashed size: \e[93m${AFTER}"
+  echo
+  docker rmi tmp-$1
+}
+
+function build {
+  echo
+  boldEcho "Build \e[92m${PREFIX}/$1\e[93m - Server: \e[92m${SERVER}\e[93m - Push: \e[92m${PUSH}\e[93m - TMPDIR: \e[92m${TMPDIR}\e[93m"
+
+  # Pull the upstream image if it does not exist
+  maybePullUpstreamImage $1
+
+  # Don't keep previous versions around or subsquent commands will fail
+  maybeRemoveImage $PREFIX/$1
+  maybeRemoveImage $SERVER/$PREFIX/$1
+
+  buildImage $1 && squashImage $1 && maybePushImage $1
+
+  echo
+  boldEcho "-> Finished"
+  echo
+}
+
+function buildAll {
+  for IMAGE in $(getSortedImageList)
+  do
+    build $IMAGE
+    if [[ $? -ne 0 ]]; then
+      echo
+      boldEcho "\e[91m-> Error building $IMAGE, halting"
+      echo
+      break
+    fi
+  done
+}
+
+# Weird temp dir fix due to CoreOS Filesystem partition allocations
+sudo mkdir -p $TMPDIR && sudo chmod a+rw $TMPDIR
+
+if [ "$#" -eq 1 ]; then
+  build $1
+else
+  buildAll
+fi
