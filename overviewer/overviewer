@@ -1,0 +1,4 @@
+#!/bin/bash
+/usr/bin/overviewer.py --config=/var/lib/minecraft/overviewer-config.py
+/usr/bin/overviewer.py --genpoi --config=/var/lib/minecraft/overviewer-config.py
+echo "{}" > /var/www/minecraft.poisonpenllc.com/overviewer/progress.json
