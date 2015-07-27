@@ -1,4 +1,0 @@
-deb http://repo.colo.lair/debarchiver trusty-aw main contrib non-free
-deb-src http://repo.colo.lair/debarchiver trusty-aw main contrib non-free
-deb http://repo.colo.lair/debarchiver trusty-aw-dev main contrib non-free
-deb-src http://repo.colo.lair/debarchiver trusty-aw-dev main contrib non-free
